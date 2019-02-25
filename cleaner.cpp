@@ -166,10 +166,11 @@ Mat residual(const Mat &L, const Mat& u, const Mat& f)
     Mat res(rows, cols, CV_32F, Scalar(0.0f));
 
     float h = 1.0f/(max(rows,cols)-1);
+    h = 1.0f;
 
     for(int i = 1; i < rows - 1; ++i) {
         for(int j = 1; j < cols - 1; ++j) {
-			res.at<float>(i,j) = h * h * f.at<float>(i,j);
+                        res.at<float>(i,j) = h * h * f.at<float>(i,j);
 
 			res.at<float>(i,j) -= L.at<float>(0,0) * u.at<float>(i-1,j-1);
 			res.at<float>(i,j) -= L.at<float>(0,1) * u.at<float>(i-1,j);
@@ -209,13 +210,14 @@ void smooth(const Mat &L, Mat &u, const Mat &f, size_t ITERS)
 
     float h = 1.0f/(max(rows,cols)-1);
 
-	float coeff = 1.0f / L.at<float>(1,1);
+    float coeff = 1.0f / L.at<float>(1,1);
+    h = 1.0f;
 
     for(int k = 0; k < ITERS; ++k) {
 
         for(int i = 1; i < rows - 1; ++i) {
             for(int j = 1; j < cols - 1; ++j) {
-				u.at<float>(i,j) = h * h * f.at<float>(i,j);
+                                u.at<float>(i,j) = h*h*f.at<float>(i,j);
 
 				u.at<float>(i,j) -= L.at<float>(0,0) * u.at<float>(i-1,j-1);
 				u.at<float>(i,j) -= L.at<float>(0,1) * u.at<float>(i-1,j);
@@ -334,19 +336,19 @@ void MG2(Mat L, Mat &u, Mat f, size_t ITERS_PRE, size_t ITERS_POST, int level, i
 		    		// pre smoothing
 	smooth(L, u, f, ITERS_PRE);
 
+        cout << "Level " << level << ": " << "Residual after pre-smoothing: " << norm(residual(L, u, f)) << endl;
+
 	if(level >= MAX_LEVEL) {
 		return;
 	}
 
-    Mat res = restrictMat(residual(L, u, f));
-    Mat e(res.rows, res.cols, CV_32F, Scalar(0.0f));
-
-	cout << "Level " << level << ": " << "Residual after pre-smoothing: " << norm(residual(L, u, f)) << endl;
+        Mat res = restrictMat(residual(L, u, f));
+        Mat e(res.rows, res.cols, CV_32F, Scalar(0.0f));
 	
 	// restrict L kernel
 	Mat R = (Mat_<float>(3,3) << 1.0f/16.0f, 1.0f/8.0f, 1.0f/16.0f,
-								 1.0f/8.0f, 1.0f/4.0f, 1.0f/8.0f,
-								 1.0f/16.0f, 1.0f/8.0f, 1.0f/16.0f);
+                                     1.0f/8.0f, 1.0f/4.0f, 1.0f/8.0f,
+                                     1.0f/16.0f, 1.0f/8.0f, 1.0f/16.0f);
 	Mat P = 4 * R.t();
 	Mat Lh = R.mul(L).mul(P);
 	cout << Lh << endl;
@@ -355,19 +357,19 @@ void MG2(Mat L, Mat &u, Mat f, size_t ITERS_PRE, size_t ITERS_POST, int level, i
 	//cout << res << endl;
 
 
-	MG2(L, e, res, ITERS_PRE, ITERS_POST, level+1, MAX_LEVEL);
+        MG2(0.25*L, e, res, ITERS_PRE, ITERS_POST, level+1, MAX_LEVEL);
 	
 	u = u + prolongMat(e);
 
 	cout << "Level " << level << ": " << "Residual after correction: " << norm(residual(L, u, f)) << endl;
 
-    // post smoothing
-    smooth(L, u, f, ITERS_POST);
+        // post smoothing
+        smooth(L, u, f, ITERS_POST);
 
 	cout << "Level " << level << ": " << "Residual after post-smoothing: " << norm(residual(L, u, f)) << endl;
 }
 
-Mat clean(vector<Mat> &imgs, size_t ITERS, size_t ITERS_PRE, size_t ITERS_POST)
+Mat clean(vector<Mat> &imgs, size_t ITERS, size_t ITERS_PRE, size_t ITERS_POST, int MAX_LEVEL)
 {
     size_t NUM_IMG = imgs.size();
     int rows = imgs[0].rows;
@@ -424,12 +426,14 @@ Mat clean(vector<Mat> &imgs, size_t ITERS, size_t ITERS_PRE, size_t ITERS_POST)
     Mat u(rows, cols, CV_32F, Scalar(0.0f));
     Mat f = medianXX + medianYY;
 
-    cout << "Intial residual norm: " << norm(residual(u, f)) << endl;
+    Mat L = 1.0f/3.0f * (Mat_<float>(3,3) << 1, 1, 1, 1, -8, 1, 1, 1, 1);
+
+    cout << "Intial residual norm: " << norm(residual(L, u, f)) << endl;
 
     for(size_t k = 0; k < ITERS; ++k)
-        MG(u, f, ITERS_PRE, ITERS_POST, 1);
+        MG2(L, u, f, ITERS_PRE, ITERS_POST, 1, MAX_LEVEL);
 
-    cout << "Final residual norm: " << norm(residual(u, f)) << endl;
+    cout << "Final residual norm: " << norm(residual(L, u, f)) << endl;
 
     /*
     normalize(u, u, 0, 1, cv::NORM_MINMAX);
@@ -451,12 +455,13 @@ int main()
     //"22/7.pgm","22/8.pgm","22/9.pgm","22/10.pgm","22/11.pgm","22/12.pgm","22/13.pgm"};
     //int NUM_IMG = 13;
 
-    int size = 1025;
-    Mat b(size,size,CV_32F,Scalar(1.0f));
-    Mat x(size,size,CV_32F,Scalar(0.0f));
+    int MAX_LEVEL = 10;
+    int size = pow(2,MAX_LEVEL)+1;
+    Mat f(size,size,CV_32F,Scalar(0.0f));
+    Mat u(size,size,CV_32F,Scalar(0.0f));
     for(int i = 1; i < size-1; ++i)
         for(int j = 1; j < size-1; ++j)
-            x.at<float>(i,j) = 1.0f;
+            f.at<float>(i,j) = (float)rand()/RAND_MAX -0.5;
     /*
     vector<Mat> As, Rs;
     Mat A = laplacianMatrix(size*size, size);
@@ -481,31 +486,39 @@ int main()
 
     //MG2(x,b,0,0,1,As,Rs);
 	
-	Mat L = (Mat_<float>(3,3) << 1.0f/4.0f, 1.0f/2.0f, 1.0f/4.0f, 1.0f/2.0f, -3.0f, 1.0f/2.0f, 1.0f/4.0f, 1.0f/2.0f, 1.0f/4.0f);
-	L = (Mat_<float>(3,3) << 0, 1, 0, 1, -4, 1, 0, 1, 0);
-	L = 1.0f/3.0f * (Mat_<float>(3,3) << 1, 1, 1, 1, -8, 1, 1, 1, 1);
-	//L = 1.0f/6.0f * (Mat_<float>(3,3) << 1, 4, 1, 4, -20, 4, 1, 4, 1);
+        Mat L = (Mat_<float>(3,3) << 1.0f/4.0f, 1.0f/2.0f, 1.0f/4.0f, 1.0f/2.0f, -3.0f, 1.0f/2.0f, 1.0f/4.0f, 1.0f/2.0f, 1.0f/4.0f);
+        //L = (Mat_<float>(3,3) << 0, 1, 0, 1, -4, 1, 0, 1, 0);
+        L = 1.0f/3.0f * (Mat_<float>(3,3) << 1, 1, 1, 1, -8, 1, 1, 1, 1);
+        //L = 1.0f/6.0f * (Mat_<float>(3,3) << 1, 4, 1, 4, -20, 4, 1, 4, 1);
 
-    cout << "Initial Residual: " << norm(residual(L, x, b)) << endl;
+    cout << "Initial Residual: " << norm(residual(L, u, f)) << endl;
 
     //MG(x,b,3,3,1);
-	MG2(L, x, b, 3, 3, 1, 1);
-	//smooth(L, x, b, 6);
+    //MG2(L, u, f, 3, 3, 1, MAX_LEVEL);
+    smooth(L, u, f, 6);
 
-    cout << "Final Residual: " << norm(residual(L, x, b)) << endl;
+    cout << "Final Residual: " << norm(residual(L, u, f)) << endl;
 
-    /*
     const char* img_paths[] = {"test/1.jpg","test/2.jpg","test/3.jpg","test/4.jpg"};
     int NUM_IMG = 4;
     
     cout << "Loading images\n";
+
+    Mat tmp = imread(img_paths[0]);
+    int targetDim = tmp.rows;
+    int po2 = 2;
+    MAX_LEVEL = 1;
+    while(po2 < targetDim) {
+        po2 = pow(2, MAX_LEVEL);
+        MAX_LEVEL++;
+    }
 
     vector<Mat> imgs;
     for(int i = 0; i < NUM_IMG; ++i) {
         Mat img = imread(img_paths[i]);
         img.convertTo(img, CV_32FC3);
         //normalize(img, img, 0, 1, NORM_MINMAX);
-        img = resizeKeepAspectRatio(img, Size(4096,4096), Scalar(0.0f,0.0f,0.0f));
+        img = resizeKeepAspectRatio(img, Size(pow(2,MAX_LEVEL)+1,pow(2,MAX_LEVEL)+1), Scalar(0.0f,0.0f,0.0f));
         imgs.push_back(img);
     }
 
@@ -523,9 +536,9 @@ int main()
     cout << "Cleaning up\n";
 
     vector<Mat> BGR(3);
-    BGR[0] = clean(imgsB, 1, 3, 3);
-    BGR[1] = clean(imgsG, 1, 3, 3);
-    BGR[2] = clean(imgsR, 1, 3, 3);
+    BGR[0] = clean(imgsB, 1, 3, 3,MAX_LEVEL);
+    BGR[1] = clean(imgsG, 1, 3, 3, MAX_LEVEL);
+    BGR[2] = clean(imgsR, 1, 3, 3, MAX_LEVEL);
 
     cout << "Saving output\n";
 
@@ -536,8 +549,6 @@ int main()
     output.convertTo(output, CV_8UC3, 255);
 
     imwrite("cleaned.png", output);
-    */
-
     
     return 0;
 }
