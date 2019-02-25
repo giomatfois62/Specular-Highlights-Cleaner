@@ -10,7 +10,7 @@
 using namespace std;
 using namespace cv;
 
-#define MAX_LEVEL 5
+#define MAX_LEVEL 3
 
 Mat resizeKeepAspectRatio(const cv::Mat &input, const cv::Size &dstSize, const cv::Scalar &bgcolor)
 {
@@ -107,21 +107,7 @@ Mat restrictMat(const Mat& mat)
     int rows = (mat.rows+1) / 2;
     int cols = (mat.cols+1) / 2;
 
-
     Mat res(rows, cols, CV_32F, Scalar(0.0f));
-
-    /*
-    resize(mat, res, mat.size()/2, INTER_AREA);
-    for(int i = 0; i < rows; ++i) {
-        res.at<float>(i,0) = 0.0f;
-        res.at<float>(i,cols-1) = 0.0f;
-    }
-    for(int i = 0; i < cols; ++i) {
-        res.at<float>(0,i) = 0.0f;
-        res.at<float>(rows-1,i) = 0.0f;
-    }
-*/
-
 
     for(int i = 1; i < rows - 1; ++i) {
         for(int j = 1; j < cols - 1; ++j) {
@@ -140,22 +126,7 @@ Mat prolongMat(const Mat& mat)
     int rows = mat.rows * 2-1;
     int cols = mat.cols * 2-1;
 
-
     Mat res(rows, cols, CV_32F, Scalar(0.0f));
-
-    /*
-    resize(mat, res, mat.size()*2, INTER_AREA);
-    for(int i = 0; i < rows; ++i) {
-        res.at<float>(i,0) = 0.0f;
-        res.at<float>(i,cols-1) = 0.0f;
-    }
-    for(int i = 0; i < cols; ++i) {
-        res.at<float>(0,i) = 0.0f;
-        res.at<float>(rows-1,i) = 0.0f;
-    }
-    */
-
-
 
     for(int i = 1; i < rows - 1; ++i) {
         for(int j = 1; j < cols - 1; ++j) {
@@ -170,8 +141,6 @@ Mat prolongMat(const Mat& mat)
         }
     }
 
-    cout << endl;
-
     return res;
 }
 
@@ -182,7 +151,7 @@ Mat residual(const Mat& u, const Mat& f)
 
     Mat res(rows, cols, CV_32F, Scalar(0.0f));
 
-    float h = 1.0f;///(max(rows,cols)-1);
+    float h = 1.0f/(max(rows,cols)-1);
 
     for(int i = 1; i < rows - 1; ++i)
         for(int j = 1; j < cols - 1; ++j)
@@ -196,21 +165,14 @@ void smooth(Mat &u, Mat &f, size_t ITERS)
     int rows = u.rows;
     int cols = u.cols;
 
-    Mat u0 = u.clone();
+    float h = 1.0f/(max(rows,cols)-1);
 
-    float h = 1.0f;///(max(rows,cols)-1);
-
-    #pragma omp parallel for
+    //#pragma omp parallel for
     for(int k = 0; k < ITERS; ++k) {
 
         for(int i = 1; i < rows - 1; ++i)
             for(int j = 1; j < cols - 1; ++j)
-                u.at<float>(i,j) = 0.25 * (u0.at<float>(i-1,j) + u0.at<float>(i,j-1) + u0.at<float>(i+1,j) + u0.at<float>(i,j+1) - h*h*f.at<float>(i,j));
-
-        for(int i = 1; i < rows - 1; ++i)
-            for(int j = 1; j < cols - 1; ++j)
-                u0.at<float>(i,j) = u.at<float>(i,j);
-
+                u.at<float>(i,j) = 0.25 * (u.at<float>(i-1,j) + u.at<float>(i,j-1) + u.at<float>(i+1,j) + u.at<float>(i,j+1) - h*h*f.at<float>(i,j));
     }
 }
 
@@ -236,30 +198,6 @@ void solveDirect(Mat &u, Mat &f)
 
     float h = 1.0f;///(max(rows,cols)-1);
 
-    /*
-    Mat A = laplacianMatrix(rows*cols, rows);
-
-    // reshape f & u
-    Mat b = h*h*f.reshape(1, A.rows);
-    Mat x = u.reshape(1, A.rows);
-
-    cout << "Solving direct problem of size " << A.size() << endl;
-
-    //cout << A << endl;
-    //cout << b << endl;
-
-    cout << "Residual before solve: " << norm(b-A*x) << endl;
-
-    // call opencv solve
-    solve(A, b, x, DECOMP_SVD);
-
-    cout << "Residual after solve: " << norm(b-A*x) << endl;
-
-    // reshape back f & u
-    u = x.reshape(1, rows);
-    f = b.reshape(1, rows);
-    */
-
     Mat A = laplacianMatrix((rows-2)*(cols-2), (rows-2));
     Rect internal(1,1,cols-2,rows-2);
     Mat b = h*h* (f(internal).clone().reshape(1,A.rows));
@@ -278,6 +216,7 @@ void solveDirect(Mat &u, Mat &f)
 
 void MG(Mat &u, Mat &f, size_t ITERS_PRE, size_t ITERS_POST, int level)
 {
+    /*
     if(level >= MAX_LEVEL) {
 
         cout << "Level " << level << ": Residual norm before direct solve: " << norm(residual(u, f)) << endl;
@@ -286,13 +225,17 @@ void MG(Mat &u, Mat &f, size_t ITERS_PRE, size_t ITERS_POST, int level)
 
         return;
     }
+    */
 
     cout << "Level " << level << ": Residual norm before pre-smoothing: " << norm(residual(u, f)) << endl;
     smooth(u, f, ITERS_PRE);
     cout << "Level " << level << ": Residual norm after pre-smoothing: " << norm(residual(u, f)) << endl;
 
+    if(level>=MAX_LEVEL)
+        return;
+
     Mat res = restrictMat(residual(u, f));
-    Mat e(u.rows/2, u.cols/2, CV_32F, Scalar(0.0f));
+    Mat e(res.rows, res.cols, CV_32F, Scalar(0.0f));
 
     MG(e, res, ITERS_PRE, ITERS_POST, level + 1);
 
@@ -444,19 +387,12 @@ int main()
     //"22/7.pgm","22/8.pgm","22/9.pgm","22/10.pgm","22/11.pgm","22/12.pgm","22/13.pgm"};
     //int NUM_IMG = 13;
 
-    int size = 5;
+    int size = 81;
     Mat b(size,size,CV_32F,Scalar(1.0f));
     Mat x(size,size,CV_32F,Scalar(0.0f));
     for(int i = 1; i < size-1; ++i)
         for(int j = 1; j < size-1; ++j)
             x.at<float>(i,j) = 1.0f;
-
-    cout << x << endl;
-    Mat xx = restrictMat(x);
-    cout << xx << endl;
-
-    xx = prolongMat(xx);
-    cout << xx << endl;
 
     /*
     vector<Mat> As, Rs;
@@ -482,9 +418,11 @@ int main()
 
     //MG2(x,b,0,0,1,As,Rs);
 
-    //MG(x,b,0,0,1);
+    cout << "Initial Residual: " << norm(residual(x,b)) << endl;
 
-    //cout << 4 * restrictionOp(32).t() << endl;
+    MG(x,b,3,3,1);
+
+    cout << "Final Residual: " << norm(residual(x,b)) << endl;
 
     /*
     const char* img_paths[] = {"test/1.jpg","test/2.jpg","test/3.jpg","test/4.jpg"};
